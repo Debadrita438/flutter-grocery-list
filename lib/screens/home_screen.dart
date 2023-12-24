@@ -17,30 +17,25 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<GroceryItem> _groceryList = [];
-  var _isLoading = true;
-  String? _error;
+  late Future<List<GroceryItem>> _loadedGroceryItems;
 
   @override
   void initState() {
     super.initState();
-    _loadGroceryList();
+    _loadedGroceryItems = _loadGroceryList();
   }
 
-  void _loadGroceryList() async {
+  Future<List<GroceryItem>> _loadGroceryList() async {
     final url = Uri.https('flutter-shop-733f2-default-rtdb.firebaseio.com',
         '/shopping-list.json');
-    try {
+
     final response = await http.get(url);
     if (response.statusCode >= 400) {
-      setState(() {
-        _error = 'Failed to fetch data. Please try again later.';
-        _isLoading = false;
-      });
+      throw Exception('Failed to fetch grocery items, please try again later.');
     }
 
-    if(response.body == 'null') {
-      setState(() => _isLoading = false);
-      return;
+    if (response.body == 'null') {
+      return [];
     }
 
     final Map<String, dynamic> listData = json.decode(response.body);
@@ -59,17 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    setState(() {
-      _groceryList = loadedItems;
-      _isLoading = false;
-    });
-    }catch (error) {
-      setState(() {
-        _error = 'Something went wrong! Please try again later.';
-        _isLoading = false;
-      });
-    }
-    
+    return loadedItems;
   }
 
   void _onNavigation() async {
@@ -90,8 +75,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final itemIndex = _groceryList.indexOf(deletedItem);
     setState(() => _groceryList.remove(deletedItem));
 
-    final url = Uri.https(
-        'flutter-shop-733f2-default-rtdb.firebaseio.com', '/shopping-list/${deletedItem.id}.json');
+    final url = Uri.https('flutter-shop-733f2-default-rtdb.firebaseio.com',
+        '/shopping-list/${deletedItem.id}.json');
     final response = await http.delete(url);
 
     if (response.statusCode >= 400) {
@@ -111,40 +96,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    Widget displayContent =
-        const Center(child: Text('No item! Start by adding some.'));
-
-    if (_isLoading) {
-      displayContent = const Center(child: CircularProgressIndicator());
-    }
-
-    if (!_isLoading && _groceryList.isNotEmpty) {
-      displayContent = ListView.builder(
-        itemCount: _groceryList.length,
-        itemBuilder: (context, index) => Dismissible(
-          key: ValueKey(_groceryList[index].id),
-          onDismissed: (direction) =>
-              _onDismissItem(_groceryList[index], context),
-          child: ListTile(
-            title: Text(_groceryList[index].name),
-            leading: Container(
-              decoration:
-                  BoxDecoration(color: _groceryList[index].category.color),
-              height: 24,
-              width: 24,
-            ),
-            trailing: Text(
-              _groceryList[index].quantity.toString(),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (_error != null) {
-      displayContent = Center(child: Text(_error!));
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Your Groceries'),
@@ -156,7 +107,45 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         ],
       ),
-      body: displayContent,
+      body: FutureBuilder(
+        future: _loadedGroceryItems,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                snapshot.error.toString(),
+              ),
+            );
+          }
+          if (snapshot.data!.isEmpty) {
+            return const Center(child: Text('No item! Start by adding some.'));
+          }
+
+          return ListView.builder(
+            itemCount: snapshot.data!.length,
+            itemBuilder: (context, index) => Dismissible(
+              key: ValueKey(snapshot.data![index].id),
+              onDismissed: (direction) =>
+                  _onDismissItem(snapshot.data![index], context),
+              child: ListTile(
+                title: Text(snapshot.data![index].name),
+                leading: Container(
+                  decoration:
+                      BoxDecoration(color: snapshot.data![index].category.color),
+                  height: 24,
+                  width: 24,
+                ),
+                trailing: Text(
+                  snapshot.data![index].quantity.toString(),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
